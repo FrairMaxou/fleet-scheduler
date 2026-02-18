@@ -190,6 +190,7 @@ def render_timeline():
                 "project_name": dep.get("project_name", ""),
                 "device_type_id": dep.get("device_type_id"),
                 "device_type_name": dep.get("device_type_name", ""),
+                "color": dep.get("device_type_color", "#72B7B2"),
                 "status": dep.get("status", "◎"),
                 "client": dep.get("client", ""),
                 "start_date": dep["start_date"],
@@ -386,6 +387,25 @@ def render_projects():
                                 db.update_weekly_allocation(int(row["id"]), int(row["device_count"]))
                             st.success("Allocations saved.")
                             st.rerun()
+
+                    # Bulk apply from date
+                    with st.form(f"bulk_{dep['id']}"):
+                        st.caption("Apply new count from a date onward")
+                        ba1, ba2, ba3 = st.columns([2, 2, 1])
+                        with ba1:
+                            bulk_count = st.number_input("New count", min_value=0,
+                                                          value=dep["default_device_count"],
+                                                          key=f"bc_{dep['id']}")
+                        with ba2:
+                            bulk_from = st.date_input("From week of", value=date.today(),
+                                                       key=f"bf_{dep['id']}")
+                        with ba3:
+                            st.write("")
+                            apply = st.form_submit_button("Apply")
+                        if apply:
+                            db.bulk_update_allocations_from(dep["id"], bulk_count, bulk_from)
+                            st.success(f"Applied {bulk_count} devices from {bulk_from}.")
+                            st.rerun()
             else:
                 st.caption("No deployments yet.")
 
@@ -435,18 +455,20 @@ def render_fleet():
     # Add device type
     with st.expander("Add Device Type", expanded=False):
         with st.form("new_device_type"):
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
             with col1:
                 dt_name = st.text_input("Name (e.g., Opus, Mikro)")
             with col2:
                 dt_total = st.number_input("Total Fleet", min_value=0, value=0)
             with col3:
                 dt_repair = st.number_input("Under Repair", min_value=0, value=0)
+            with col4:
+                dt_color = st.color_picker("Color", value="#4C78A8")
 
             if st.form_submit_button("Add"):
                 if dt_name:
                     try:
-                        db.create_device_type(dt_name, dt_total, dt_repair)
+                        db.create_device_type(dt_name, dt_total, dt_repair, dt_color)
                         st.success(f"Added: {dt_name}")
                         st.rerun()
                     except Exception as e:
@@ -463,7 +485,7 @@ def render_fleet():
     st.subheader("Device Types")
     for dt in device_types:
         with st.form(f"edit_dt_{dt['id']}"):
-            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 1])
             with col1:
                 ed_name = st.text_input("Name", dt["name"], key=f"dtn_{dt['id']}")
             with col2:
@@ -473,11 +495,14 @@ def render_fleet():
                 ed_repair = st.number_input("Under Repair", value=dt["under_repair"],
                                             min_value=0, key=f"dtr_{dt['id']}")
             with col4:
-                st.write("")  # spacer
+                ed_color = st.color_picker("Color", value=dt.get("color", "#4C78A8"),
+                                           key=f"dtc_{dt['id']}")
+            with col5:
+                st.write("")
                 save = st.form_submit_button("Save")
 
             if save:
-                db.update_device_type(dt["id"], ed_name, ed_total, ed_repair)
+                db.update_device_type(dt["id"], ed_name, ed_total, ed_repair, ed_color)
                 st.success(f"Updated: {ed_name}")
                 st.rerun()
 

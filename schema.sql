@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS device_types (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     total_fleet INTEGER NOT NULL DEFAULT 0,
-    under_repair INTEGER NOT NULL DEFAULT 0
+    under_repair INTEGER NOT NULL DEFAULT 0,
+    color TEXT DEFAULT '#4C78A8'
 );
 
 CREATE TABLE IF NOT EXISTS projects (

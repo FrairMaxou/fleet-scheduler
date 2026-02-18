@@ -4,23 +4,7 @@ import pandas as pd
 from datetime import date, timedelta
 
 
-# Color palette for device types
-DEVICE_COLORS = {
-    "Opus": "#4C78A8",
-    "Mikro": "#E45756",
-    "タッチ4": "#54A24B",
-}
-
-STATUS_COLORS = {
-    "◎": "#4C78A8",  # confirmed - blue
-    "★": "#E45756",  # must-win - red
-    "☆": "#F58518",  # nice-to-have - orange
-    "△": "#BABBBD",  # conditional - grey
-}
-
-
-def _get_color(device_type_name: str) -> str:
-    return DEVICE_COLORS.get(device_type_name, "#72B7B2")
+DEFAULT_COLOR = "#72B7B2"
 
 
 def _hex_to_rgba(hex_color: str, alpha: float = 0.3) -> str:
@@ -75,7 +59,7 @@ def build_timeline_chart(rows: list[dict], start_range: date, end_range: date) -
             f"<br>{dep_detail}"
         )
 
-        color = _get_color(device_type_name)
+        color = row.get("color", DEFAULT_COLOR)
         duration_ms = (dep_end - dep_start).days * 24 * 3600 * 1000
 
         fig.add_trace(go.Bar(
@@ -132,7 +116,7 @@ def build_capacity_chart(usage_data: list[dict], device_types: list[dict],
         if dt_data.empty:
             continue
 
-        color = _get_color(dt["name"])
+        color = dt.get("color", DEFAULT_COLOR)
         capacity = dt["total_fleet"] - dt["under_repair"]
 
         # Usage area
