@@ -1,11 +1,39 @@
 """Fleet Scheduler — Device Deployment Planning Tool for Acoustiguide Japan."""
 import streamlit as st
 import pandas as pd
+import streamlit_authenticator as stauth
 from datetime import date, timedelta
 from src import database as db
 from src.charts import build_timeline_chart, build_capacity_chart
 
 st.set_page_config(page_title="Fleet Scheduler", layout="wide")
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
+
+credentials = {"usernames": {k: dict(v) for k, v in st.secrets["credentials"]["usernames"].items()}}
+authenticator = stauth.Authenticate(
+    credentials,
+    st.secrets["auth"]["cookie_name"],
+    st.secrets["auth"]["cookie_key"],
+    cookie_expiry_days=30,
+)
+authenticator.login()
+
+if st.session_state.get("authentication_status") is False:
+    st.error("Incorrect username or password.")
+    st.stop()
+elif st.session_state.get("authentication_status") is None:
+    st.stop()
+
+authenticator.logout("Logout", "sidebar")
+st.sidebar.caption(f"Logged in as {st.session_state['name']}")
+
+# ---------------------------------------------------------------------------
+# App init (only reached when authenticated)
+# ---------------------------------------------------------------------------
+
 db.init_db()
 
 STATUS_OPTIONS = ["◎", "★", "☆", "△"]
@@ -152,8 +180,34 @@ def render_timeline():
                 if date.fromisoformat(d["end_date"]) >= start_range
                 and date.fromisoformat(d["start_date"]) <= end_range]
 
+    # Aggregate filtered deployments by project × device type
+    agg = {}
+    for dep in filtered:
+        key = (dep["project_id"], dep.get("device_type_id", 0))
+        if key not in agg:
+            agg[key] = {
+                "project_id": dep["project_id"],
+                "project_name": dep.get("project_name", ""),
+                "device_type_id": dep.get("device_type_id"),
+                "device_type_name": dep.get("device_type_name", ""),
+                "status": dep.get("status", "◎"),
+                "client": dep.get("client", ""),
+                "start_date": dep["start_date"],
+                "end_date": dep["end_date"],
+                "total_count": dep["default_device_count"],
+                "deployments": [dep],
+            }
+        else:
+            entry = agg[key]
+            entry["start_date"] = min(entry["start_date"], dep["start_date"])
+            entry["end_date"] = max(entry["end_date"], dep["end_date"])
+            entry["total_count"] += dep["default_device_count"]
+            entry["deployments"].append(dep)
+
+    rows = sorted(agg.values(), key=lambda x: (x["start_date"], x["project_name"]))
+
     # Gantt chart
-    fig = build_timeline_chart(filtered, start_range, end_range)
+    fig = build_timeline_chart(rows, start_range, end_range)
     st.plotly_chart(fig, use_container_width=True)
 
     # Capacity chart
@@ -182,35 +236,88 @@ def render_projects():
     dt_map = {dt["id"]: dt["name"] for dt in device_types}
     dt_name_to_id = {dt["name"]: dt["id"] for dt in device_types}
 
-    # Add new project
-    with st.expander("Add New Project", expanded=False):
-        with st.form("new_project"):
-            col1, col2 = st.columns(2)
-            with col1:
-                p_name = st.text_input("Exhibition Name (JP)")
-                p_client = st.text_input("Client")
-            with col2:
-                p_name_en = st.text_input("Exhibition Name (EN)")
-                p_status = st.selectbox("Status", STATUS_OPTIONS,
-                                        format_func=lambda x: STATUS_LABELS[x])
-            p_notes = st.text_input("Notes")
+    # --- Add new project ---
+    if "show_add_project" not in st.session_state:
+        st.session_state.show_add_project = False
 
-            if st.form_submit_button("Create Project"):
-                if p_name:
-                    db.create_project(name=p_name, name_en=p_name_en, client=p_client,
-                                      status=p_status, notes=p_notes)
-                    st.success(f"Created: {p_name}")
+    if st.button("+ New Project", type="primary"):
+        st.session_state.show_add_project = not st.session_state.show_add_project
+
+    if st.session_state.show_add_project:
+        with st.container(border=True):
+            st.markdown("**New Project**")
+            with st.form("new_project", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    p_name = st.text_input("Exhibition Name (JP)")
+                    p_client = st.text_input("Client")
+                with col2:
+                    p_name_en = st.text_input("Exhibition Name (EN)")
+                    p_status = st.selectbox("Status", STATUS_OPTIONS,
+                                            format_func=lambda x: STATUS_LABELS[x])
+                p_notes = st.text_input("Notes")
+
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    submitted = st.form_submit_button("Create Project", type="primary")
+                with c2:
+                    cancelled = st.form_submit_button("Cancel")
+
+                if submitted:
+                    if p_name:
+                        db.create_project(name=p_name, name_en=p_name_en, client=p_client,
+                                          status=p_status, notes=p_notes)
+                        st.session_state.show_add_project = False
+                        st.rerun()
+                    else:
+                        st.error("Name is required.")
+                if cancelled:
+                    st.session_state.show_add_project = False
                     st.rerun()
-                else:
-                    st.error("Name is required.")
 
-    # List projects
+    st.divider()
+
+    # --- Filters ---
+    all_deployments = db.get_deployments()
+    venues_by_project = {}
+    for dep in all_deployments:
+        venues_by_project.setdefault(dep["project_id"], []).append(
+            f"{dep['venue']} {dep.get('location', '')}".lower()
+        )
+
+    fcol1, fcol2 = st.columns([3, 2])
+    with fcol1:
+        search = st.text_input("Search", placeholder="name, client, venue…", label_visibility="collapsed")
+    with fcol2:
+        status_filter = st.multiselect("Status", STATUS_OPTIONS, default=STATUS_OPTIONS,
+                                       format_func=lambda x: STATUS_LABELS[x],
+                                       label_visibility="collapsed")
+
+    # --- List projects ---
     projects = db.get_projects()
     if not projects:
         st.info("No projects yet.")
         return
 
-    for proj in projects:
+    search_lower = search.lower()
+    filtered_projects = [
+        p for p in projects
+        if p["status"] in status_filter
+        and (
+            not search_lower
+            or search_lower in p["name"].lower()
+            or search_lower in p.get("name_en", "").lower()
+            or search_lower in p.get("client", "").lower()
+            or search_lower in p.get("notes", "").lower()
+            or any(search_lower in v for v in venues_by_project.get(p["id"], []))
+        )
+    ]
+
+    if not filtered_projects:
+        st.info("No projects match the filter.")
+        return
+
+    for proj in filtered_projects:
         status_label = STATUS_LABELS.get(proj["status"], proj["status"])
         with st.expander(f"{proj['status']} {proj['name']} — {proj['client']} ({status_label})"):
             # Edit project
@@ -243,7 +350,7 @@ def render_projects():
 
             # Deployments for this project
             st.markdown("**Deployments:**")
-            deployments = db.get_deployments(proj["id"])
+            deployments = [d for d in all_deployments if d["project_id"] == proj["id"]]
 
             if deployments:
                 for dep in deployments:
