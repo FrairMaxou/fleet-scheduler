@@ -109,6 +109,10 @@ EN: dict = {
     "proj_dep_add_btn": "Add Deployment",
     "proj_dep_added": "Added deployment",
     "proj_dep_fill_error": "Fill in venue, dates, and device count.",
+    "proj_archive_btn": "Archive",
+    "proj_unarchive_btn": "Unarchive",
+    "proj_show_archived": "Show archived",
+    "proj_archived_label": "(archived)",
 
     # Fleet
     "fleet_add_expander": "Add Device Type",
@@ -269,6 +273,10 @@ JA: dict = {
     "proj_dep_add_btn": "展開を追加",
     "proj_dep_added": "展開を追加しました",
     "proj_dep_fill_error": "会場、日付、台数を入力してください。",
+    "proj_archive_btn": "アーカイブ",
+    "proj_unarchive_btn": "アーカイブ解除",
+    "proj_show_archived": "アーカイブを表示",
+    "proj_archived_label": "（アーカイブ済み）",
 
     # Fleet
     "fleet_add_expander": "機材種別を追加",

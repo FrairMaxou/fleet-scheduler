@@ -327,7 +327,8 @@ def render_projects(T: dict):
     st.divider()
 
     # --- Filters ---
-    all_deployments = db.get_deployments()
+    show_archived = st.checkbox(T["proj_show_archived"])
+    all_deployments = db.get_deployments(include_archived=show_archived)
     venues_by_project = {}
     for dep in all_deployments:
         venues_by_project.setdefault(dep["project_id"], []).append(
@@ -351,7 +352,7 @@ def render_projects(T: dict):
         )
 
     # --- Load all data upfront (single queries, cached) ---
-    projects = db.get_projects()
+    projects = db.get_projects(include_archived=show_archived)
     all_allocations = db.get_all_weekly_allocations()
 
     if not projects:
@@ -378,7 +379,8 @@ def render_projects(T: dict):
 
     for proj in filtered_projects:
         status_label = STATUS_LABELS.get(proj["status"], proj["status"])
-        with st.expander(f"{proj['status']} {proj['name']} — {proj['client']} ({status_label})"):
+        archived_tag = f" {T['proj_archived_label']}" if proj.get("archived") else ""
+        with st.expander(f"{proj['status']} {proj['name']} — {proj['client']} ({status_label}){archived_tag}"):
             # Edit project
             with st.form(f"edit_proj_{proj['id']}"):
                 col1, col2, col3 = st.columns(3)
@@ -397,18 +399,31 @@ def render_projects(T: dict):
                 with col3:
                     ed_notes = st.text_input(T["proj_notes"], proj["notes"], key=f"pno_{proj['id']}")
 
-                c1, c2 = st.columns([3, 1])
+                if proj.get("archived"):
+                    c1, c2, c3 = st.columns([3, 1, 1])
+                else:
+                    c1, c2 = st.columns([3, 1])
                 with c1:
                     if st.form_submit_button(T["proj_update_btn"]):
                         db.update_project(proj["id"], name=ed_name, name_en=ed_name_en,
                                           client=ed_client, status=ed_status, notes=ed_notes)
                         st.success(T["proj_updated"])
                         st.rerun()
-                with c2:
-                    if st.form_submit_button(T["proj_delete_btn"], type="secondary"):
-                        db.delete_project(proj["id"])
-                        st.success(T["proj_deleted"])
-                        st.rerun()
+                if proj.get("archived"):
+                    with c2:
+                        if st.form_submit_button(T["proj_unarchive_btn"]):
+                            db.unarchive_project(proj["id"])
+                            st.rerun()
+                    with c3:
+                        if st.form_submit_button(T["proj_delete_btn"], type="secondary"):
+                            db.delete_project(proj["id"])
+                            st.success(T["proj_deleted"])
+                            st.rerun()
+                else:
+                    with c2:
+                        if st.form_submit_button(T["proj_archive_btn"], type="secondary"):
+                            db.archive_project(proj["id"])
+                            st.rerun()
 
             # Deployments for this project
             st.markdown(T["proj_deployments"])

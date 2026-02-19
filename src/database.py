@@ -62,6 +62,11 @@ def init_db():
                 notes TEXT DEFAULT ''
             )
         """)
+        # Safe migration: add archived column if it doesn't exist yet
+        cur.execute("""
+            ALTER TABLE projects
+            ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE
+        """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS deployments (
                 id SERIAL PRIMARY KEY,
@@ -161,10 +166,13 @@ def delete_device_type(device_type_id: int):
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=120)
-def get_projects() -> list[dict]:
+def get_projects(include_archived: bool = False) -> list[dict]:
     with get_connection() as conn:
         cur = _cur(conn)
-        cur.execute("SELECT * FROM projects ORDER BY name")
+        if include_archived:
+            cur.execute("SELECT * FROM projects ORDER BY name")
+        else:
+            cur.execute("SELECT * FROM projects WHERE archived = FALSE ORDER BY name")
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -203,6 +211,24 @@ def update_project(project_id: int, **kwargs):
         get_projects.clear()
 
 
+def archive_project(project_id: int):
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE projects SET archived = TRUE WHERE id = %s", (project_id,))
+        conn.commit()
+        get_projects.clear()
+        get_deployments.clear()
+
+
+def unarchive_project(project_id: int):
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE projects SET archived = FALSE WHERE id = %s", (project_id,))
+        conn.commit()
+        get_projects.clear()
+        get_deployments.clear()
+
+
 def delete_project(project_id: int):
     with get_connection() as conn:
         cur = conn.cursor()
@@ -216,29 +242,28 @@ def delete_project(project_id: int):
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=120)
-def get_deployments(project_id: Optional[int] = None) -> list[dict]:
+def get_deployments(project_id: Optional[int] = None,
+                    include_archived: bool = False) -> list[dict]:
     with get_connection() as conn:
         cur = _cur(conn)
+        conditions = []
+        params: list = []
         if project_id:
-            cur.execute(
-                """SELECT d.*, p.name as project_name,
-                          dt.name as device_type_name, dt.color as device_type_color
-                   FROM deployments d
-                   JOIN projects p ON d.project_id = p.id
-                   JOIN device_types dt ON d.device_type_id = dt.id
-                   WHERE d.project_id = %s
-                   ORDER BY d.start_date""",
-                (project_id,)
-            )
-        else:
-            cur.execute(
-                """SELECT d.*, p.name as project_name,
-                          dt.name as device_type_name, dt.color as device_type_color
-                   FROM deployments d
-                   JOIN projects p ON d.project_id = p.id
-                   JOIN device_types dt ON d.device_type_id = dt.id
-                   ORDER BY d.start_date"""
-            )
+            conditions.append("d.project_id = %s")
+            params.append(project_id)
+        if not include_archived:
+            conditions.append("p.archived = FALSE")
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        cur.execute(
+            f"""SELECT d.*, p.name as project_name,
+                      dt.name as device_type_name, dt.color as device_type_color
+               FROM deployments d
+               JOIN projects p ON d.project_id = p.id
+               JOIN device_types dt ON d.device_type_id = dt.id
+               {where}
+               ORDER BY d.start_date""",
+            params,
+        )
         return [dict(r) for r in cur.fetchall()]
 
 
