@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 .env
 .streamlit/secrets.toml
+.streamlit/secrets.local.toml

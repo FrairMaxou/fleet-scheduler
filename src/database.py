@@ -160,6 +160,7 @@ def delete_device_type(device_type_id: int):
 # Projects CRUD
 # ---------------------------------------------------------------------------
 
+@st.cache_data(ttl=120)
 def get_projects() -> list[dict]:
     with get_connection() as conn:
         cur = _cur(conn)
@@ -186,6 +187,7 @@ def create_project(name: str, name_en: str = "", client: str = "",
         )
         row_id = cur.fetchone()[0]
         conn.commit()
+        get_projects.clear()
         return row_id
 
 
@@ -198,6 +200,7 @@ def update_project(project_id: int, **kwargs):
         cur = conn.cursor()
         cur.execute(f"UPDATE projects SET {sets} WHERE id = %s", vals)
         conn.commit()
+        get_projects.clear()
 
 
 def delete_project(project_id: int):
@@ -205,12 +208,14 @@ def delete_project(project_id: int):
         cur = conn.cursor()
         cur.execute("DELETE FROM projects WHERE id = %s", (project_id,))
         conn.commit()
+        get_projects.clear()
 
 
 # ---------------------------------------------------------------------------
 # Deployments CRUD
 # ---------------------------------------------------------------------------
 
+@st.cache_data(ttl=120)
 def get_deployments(project_id: Optional[int] = None) -> list[dict]:
     with get_connection() as conn:
         cur = _cur(conn)
@@ -258,6 +263,8 @@ def create_deployment(project_id: int, venue: str, location: str,
                 (deployment_id, str(monday), default_device_count)
             )
         conn.commit()
+        get_deployments.clear()
+        get_all_weekly_allocations.clear()
         return deployment_id
 
 
@@ -270,6 +277,7 @@ def update_deployment(deployment_id: int, **kwargs):
         cur = conn.cursor()
         cur.execute(f"UPDATE deployments SET {sets} WHERE id = %s", vals)
         conn.commit()
+        get_deployments.clear()
 
 
 def delete_deployment(deployment_id: int):
@@ -277,6 +285,8 @@ def delete_deployment(deployment_id: int):
         cur = conn.cursor()
         cur.execute("DELETE FROM deployments WHERE id = %s", (deployment_id,))
         conn.commit()
+        get_deployments.clear()
+        get_all_weekly_allocations.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -284,13 +294,21 @@ def delete_deployment(deployment_id: int):
 # ---------------------------------------------------------------------------
 
 def get_weekly_allocations(deployment_id: int) -> list[dict]:
+    return get_all_weekly_allocations().get(deployment_id, [])
+
+
+@st.cache_data(ttl=120)
+def get_all_weekly_allocations() -> dict[int, list[dict]]:
+    """Single query for all allocations, grouped by deployment_id.
+    Use this instead of calling get_weekly_allocations() in a loop."""
     with get_connection() as conn:
         cur = _cur(conn)
-        cur.execute(
-            "SELECT * FROM weekly_allocations WHERE deployment_id = %s ORDER BY week_start",
-            (deployment_id,)
-        )
-        return [dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT * FROM weekly_allocations ORDER BY deployment_id, week_start")
+        result: dict[int, list[dict]] = {}
+        for row in cur.fetchall():
+            d = dict(row)
+            result.setdefault(d["deployment_id"], []).append(d)
+        return result
 
 
 def update_weekly_allocation(allocation_id: int, device_count: int):
@@ -301,6 +319,7 @@ def update_weekly_allocation(allocation_id: int, device_count: int):
             (device_count, allocation_id)
         )
         conn.commit()
+        get_all_weekly_allocations.clear()
 
 
 def bulk_update_allocations_from(deployment_id: int, new_count: int, from_date: date):
@@ -313,6 +332,7 @@ def bulk_update_allocations_from(deployment_id: int, new_count: int, from_date: 
             (new_count, deployment_id, str(from_date))
         )
         conn.commit()
+        get_all_weekly_allocations.clear()
 
 
 def regenerate_weekly_allocations(deployment_id: int, start_date: date,
@@ -326,6 +346,7 @@ def regenerate_weekly_allocations(deployment_id: int, start_date: date,
                 (deployment_id, str(monday), default_count)
             )
         conn.commit()
+        get_all_weekly_allocations.clear()
 
 
 # ---------------------------------------------------------------------------

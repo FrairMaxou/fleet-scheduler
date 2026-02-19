@@ -1,7 +1,7 @@
 """Plotly chart builders for Fleet Scheduler."""
 import plotly.graph_objects as go
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date
 
 
 DEFAULT_COLOR = "#72B7B2"
@@ -13,11 +13,12 @@ def _hex_to_rgba(hex_color: str, alpha: float = 0.3) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
-def build_timeline_chart(rows: list[dict], start_range: date, end_range: date) -> go.Figure:
+def build_timeline_chart(rows: list[dict], start_range: date, end_range: date,
+                         T: dict) -> go.Figure:
     """Build a Gantt-style timeline. One bar per project × device type, sorted by start date."""
     if not rows:
         fig = go.Figure()
-        fig.update_layout(title="No deployments in selected range")
+        fig.update_layout(title=T["chart_no_deps"])
         return fig
 
     # Detect projects that have more than one device type → need type suffix in label
@@ -47,15 +48,15 @@ def build_timeline_chart(rows: list[dict], start_range: date, end_range: date) -
 
         dep_detail = "<br>".join(
             f"  · {d['venue']} ({d.get('location', '')}) — "
-            f"{d['default_device_count']} units [{d['start_date']} → {d['end_date']}]"
+            f"{d['default_device_count']} {T['chart_hover_units']} [{d['start_date']} → {d['end_date']}]"
             for d in row.get("deployments", [])
         )
         hover = (
             f"<b>{proj_name}</b><br>"
-            f"Device: {device_type_name}<br>"
-            f"Total: {total_count}<br>"
-            f"Period: {row['start_date']} → {row['end_date']}<br>"
-            f"Status: {status_icon} | Client: {row.get('client', '')}<br>"
+            f"{T['chart_hover_device']}: {device_type_name}<br>"
+            f"{T['chart_hover_total']}: {total_count}<br>"
+            f"{T['chart_hover_period']}: {row['start_date']} → {row['end_date']}<br>"
+            f"{T['chart_hover_status']}: {status_icon} | {T['chart_hover_client']}: {row.get('client', '')}<br>"
             f"<br>{dep_detail}"
         )
 
@@ -93,17 +94,17 @@ def build_timeline_chart(rows: list[dict], start_range: date, end_range: date) -
         ),
         height=max(400, len(y_order) * 36 + 100),
         margin=dict(l=10, r=10, t=40, b=40),
-        title="Device Deployment Timeline",
+        title=T["chart_timeline_title"],
     )
     return fig
 
 
 def build_capacity_chart(usage_data: list[dict], device_types: list[dict],
-                         start_range: date, end_range: date) -> go.Figure:
+                         start_range: date, end_range: date, T: dict) -> go.Figure:
     """Build stacked area chart: usage vs capacity per device type."""
     if not usage_data:
         fig = go.Figure()
-        fig.update_layout(title="No usage data in selected range")
+        fig.update_layout(title=T["chart_no_usage"])
         return fig
 
     df = pd.DataFrame(usage_data)
@@ -123,7 +124,7 @@ def build_capacity_chart(usage_data: list[dict], device_types: list[dict],
         fig.add_trace(go.Scatter(
             x=dt_data["week_start"],
             y=dt_data["total_in_use"],
-            name=f"{dt['name']} — in use",
+            name=f"{dt['name']} — {T['chart_in_use_suffix']}",
             fill="tozeroy",
             mode="lines",
             line=dict(color=color),
@@ -134,7 +135,7 @@ def build_capacity_chart(usage_data: list[dict], device_types: list[dict],
         fig.add_trace(go.Scatter(
             x=dt_data["week_start"],
             y=[capacity] * len(dt_data),
-            name=f"{dt['name']} — capacity ({capacity})",
+            name=f"{dt['name']} — {T['chart_capacity_suffix']} ({capacity})",
             mode="lines",
             line=dict(color=color, dash="dash", width=2),
         ))
@@ -146,10 +147,10 @@ def build_capacity_chart(usage_data: list[dict], device_types: list[dict],
             dtick="M1",
             tickformat="%b %Y",
         ),
-        yaxis=dict(title="Devices"),
+        yaxis=dict(title=T["chart_devices_axis"]),
         height=350,
         margin=dict(l=10, r=10, t=40, b=40),
-        title="Fleet Capacity vs Usage",
+        title=T["chart_capacity_title"],
         legend=dict(orientation="h", y=-0.2),
     )
     return fig
